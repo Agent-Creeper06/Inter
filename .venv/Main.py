@@ -37,10 +37,6 @@ class ElementType(Enum):
     HEXAGON = "hexagon"
     ARROW = "arrow"
     TEXT = "text"
-    BUTTON = "button"
-    INPUT = "input"
-    MENU = "menu"
-    ICON = "icon"
     IMAGE = "image"
     LINK = "link"
 
@@ -315,30 +311,6 @@ class Canvas(QWidget):
                     }
                     self.add_element(element)
                     self.drawing = False
-                elif tool == "button":
-                    element = CanvasElement(ElementType.BUTTON, pos)
-                    element.data = {'text': 'Кнопка', 'width': 100, 'height': 30}
-                    element.size = QSizeF(100, 30)
-                    self.add_element(element)
-                    self.drawing = False
-        elif tool == "input":
-            element = CanvasElement(ElementType.INPUT, pos)
-            element.data = {'placeholder': 'Введите текст', 'width': 150, 'height': 25}
-            element.size = QSizeF(150, 25)
-            self.add_element(element)
-            self.drawing = False
-        elif tool == "menu":
-            element = CanvasElement(ElementType.MENU, pos)
-            element.data = {'items': ['Пункт 1', 'Пункт 2', 'Пункт 3'], 'width': 120, 'height': 25}
-            element.size = QSizeF(120, 25)
-            self.add_element(element)
-            self.drawing = False
-        elif tool == "icon":
-            element = CanvasElement(ElementType.ICON, pos)
-            element.data = {'icon_type': 'default', 'size': 32}
-            element.size = QSizeF(32, 32)
-            self.add_element(element)
-            self.drawing = False
         elif tool == "image":
             # Загрузка изображения будет обработана отдельно
             pass
@@ -469,10 +441,6 @@ class Canvas(QWidget):
             ElementType.HEXAGON: "Шестиугольник - правильный многоугольник",
             ElementType.ARROW: "Стрелка - указывает направление",
             ElementType.TEXT: "Текст - двойной клик для редактирования",
-            ElementType.BUTTON: "Кнопка - элемент интерфейса. Двойной клик для редактирования",
-            ElementType.INPUT: "Поле ввода - элемент интерфейса. Двойной клик для редактирования",
-            ElementType.MENU: "Меню - элемент интерфейса. Двойной клик для редактирования",
-            ElementType.ICON: "Иконка - графический элемент. Двойной клик для редактирования",
             ElementType.IMAGE: "Изображение - внешний файл",
             ElementType.LINK: "Ссылка - переход на другой холст"
         }
@@ -557,79 +525,6 @@ class Canvas(QWidget):
                 element.data['font_size'] = font_size.value()
                 align_map = {0: Qt.AlignLeft, 1: Qt.AlignCenter, 2: Qt.AlignRight}
                 element.data['alignment'] = align_map[alignment.currentIndex()]
-                self.update()
-        elif element.element_type == ElementType.BUTTON:
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Редактирование кнопки")
-            layout = QVBoxLayout(dialog)
-
-            text_edit = QLineEdit(element.data.get('text', 'Кнопка'))
-            layout.addWidget(QLabel("Текст:"))
-            layout.addWidget(text_edit)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
-
-            if dialog.exec():
-                element.data['text'] = text_edit.text()
-                self.update()
-        elif element.element_type == ElementType.INPUT:
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Редактирование поля ввода")
-            layout = QVBoxLayout(dialog)
-
-            placeholder_edit = QLineEdit(element.data.get('placeholder', ''))
-            layout.addWidget(QLabel("Подсказка:"))
-            layout.addWidget(placeholder_edit)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
-
-            if dialog.exec():
-                element.data['placeholder'] = placeholder_edit.text()
-                self.update()
-        elif element.element_type == ElementType.MENU:
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Редактирование меню")
-            layout = QVBoxLayout(dialog)
-
-            items_text = QTextEdit()
-            items = element.data.get('items', ['Пункт 1', 'Пункт 2', 'Пункт 3'])
-            items_text.setPlainText('\n'.join(items))
-            layout.addWidget(QLabel("Пункты меню (каждый на новой строке):"))
-            layout.addWidget(items_text)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
-
-            if dialog.exec():
-                text = items_text.toPlainText()
-                element.data['items'] = [line.strip() for line in text.split('\n') if line.strip()]
-                self.update()
-        elif element.element_type == ElementType.ICON:
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Редактирование иконки")
-            layout = QVBoxLayout(dialog)
-
-            icon_type_combo = QComboBox()
-            icon_type_combo.addItems(['default', 'file', 'folder', 'settings'])
-            icon_type_combo.setCurrentText(element.data.get('icon_type', 'default'))
-            layout.addWidget(QLabel("Тип иконки:"))
-            layout.addWidget(icon_type_combo)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
-
-            if dialog.exec():
-                element.data['icon_type'] = icon_type_combo.currentText()
                 self.update()
 
     def choose_color(self, element: CanvasElement):
@@ -856,89 +751,6 @@ class Canvas(QWidget):
             painter.setPen(pen)
             painter.drawRect(rect)
 
-        elif element.element_type == ElementType.BUTTON:
-            rect = QRectF(element.position, element.size)
-            # Рисуем кнопку
-            brush = QBrush(QColor(240, 240, 240))
-            painter.setBrush(brush)
-            pen.setColor(QColor(200, 200, 200))
-            painter.setPen(pen)
-            painter.drawRect(rect)
-
-            # Текст кнопки
-            text = element.data.get('text', 'Кнопка')
-            font = QFont('Arial', 10)
-            painter.setFont(font)
-            pen.setColor(QColor(0, 0, 0))
-            painter.setPen(pen)
-            painter.drawText(rect, Qt.AlignCenter, text)
-
-        elif element.element_type == ElementType.INPUT:
-            rect = QRectF(element.position, element.size)
-            # Рисуем поле ввода
-            brush = QBrush(QColor(255, 255, 255))
-            painter.setBrush(brush)
-            pen.setColor(QColor(200, 200, 200))
-            painter.setPen(pen)
-            painter.drawRect(rect)
-
-            # Подсказка
-            placeholder = element.data.get('placeholder', 'Введите текст')
-            font = QFont('Arial', 9)
-            painter.setFont(font)
-            pen.setColor(QColor(150, 150, 150))
-            painter.setPen(pen)
-            painter.drawText(rect.adjusted(5, 0, -5, 0), Qt.AlignLeft | Qt.AlignVCenter, placeholder)
-
-        elif element.element_type == ElementType.MENU:
-            rect = QRectF(element.position, element.size)
-            # Рисуем меню
-            brush = QBrush(QColor(245, 245, 245))
-            painter.setBrush(brush)
-            pen.setColor(QColor(200, 200, 200))
-            painter.setPen(pen)
-            painter.drawRect(rect)
-
-            # Текст меню
-            text = element.data.get('items', ['Меню'])[0] if element.data.get('items') else 'Меню'
-            font = QFont('Arial', 10)
-            painter.setFont(font)
-            pen.setColor(QColor(0, 0, 0))
-            painter.setPen(pen)
-            painter.drawText(rect.adjusted(5, 0, -20, 0), Qt.AlignLeft | Qt.AlignVCenter, text)
-
-            # Стрелка вниз
-            arrow_points = [
-                QPointF(rect.right() - 10, rect.center().y() - 3),
-                QPointF(rect.right() - 5, rect.center().y() + 2),
-                QPointF(rect.right() - 15, rect.center().y() + 2)
-            ]
-            painter.drawPolygon(QPolygonF(arrow_points))
-
-        elif element.element_type == ElementType.ICON:
-            rect = QRectF(element.position, element.size)
-            # Рисуем иконку (упрощенная версия)
-            icon_type = element.data.get('icon_type', 'default')
-            brush = QBrush(QColor(100, 150, 200))
-            painter.setBrush(brush)
-            pen.setColor(QColor(80, 120, 160))
-            painter.setPen(pen)
-
-            icon_symbols = {
-                'default': '⚙',
-                'file': '📄',
-                'folder': '📁',
-                'settings': '⚙'
-            }
-            symbol = icon_symbols.get(icon_type, '⚙')
-
-            painter.drawRect(rect)
-            font = QFont('Arial', 16, QFont.Bold)
-            painter.setFont(font)
-            pen.setColor(QColor(255, 255, 255))
-            painter.setPen(pen)
-            painter.drawText(rect, Qt.AlignCenter, symbol)
-
         elif element.element_type == ElementType.IMAGE:
             image_path = element.data.get('image_path', '')
             if image_path and os.path.exists(image_path):
@@ -1066,12 +878,6 @@ class MainWindow(QMainWindow):
         self.add_tool_button(toolbar, "Текст", "text")
         toolbar.addSeparator()
 
-        self.add_tool_button(toolbar, "Кнопка", "button")
-        self.add_tool_button(toolbar, "Поле ввода", "input")
-        self.add_tool_button(toolbar, "Меню", "menu")
-        self.add_tool_button(toolbar, "Иконка", "icon")
-        toolbar.addSeparator()
-
         self.add_tool_button(toolbar, "Изображение", "image")
         self.add_tool_button(toolbar, "Ссылка", "link")
 
@@ -1139,10 +945,6 @@ class MainWindow(QMainWindow):
             "pentagon": "Пятиугольник",
             "hexagon": "Шестиугольник",
             "text": "Текст",
-            "button": "Кнопка",
-            "input": "Поле ввода",
-            "menu": "Меню",
-            "icon": "Иконка",
             "image": "Изображение",
             "link": "Ссылка на другой холст"
         }

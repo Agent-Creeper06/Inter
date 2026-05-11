@@ -1,57 +1,28 @@
+import os
+
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QToolBar, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QComboBox, QSpinBox, QColorDialog,
-    QFileDialog, QMenuBar, QMenu, QMessageBox, QTabWidget, QDialog,
-    QDialogButtonBox, QFormLayout, QTextEdit, QGroupBox, QCheckBox,
-    QToolButton, QSplitter, QListWidget, QListWidgetItem, QGraphicsView,
-    QGraphicsScene, QGraphicsItem, QGraphicsRectItem, QGraphicsEllipseItem,
-    QGraphicsPolygonItem, QGraphicsLineItem, QGraphicsTextItem, QGraphicsPixmapItem,
-    QGraphicsProxyWidget, QFrame, QScrollArea, QDockWidget, QToolTip
+    QApplication, QMainWindow, QWidget, QToolBar, QVBoxLayout,
+    QLabel, QFileDialog, QMenu, QMessageBox, QTabWidget, QDialog,
+    QDialogButtonBox, QCheckBox, QListWidget, QListWidgetItem, QDockWidget,
+    QColorDialog, QTextEdit, QSpinBox, QComboBox,
 )
 from PySide6.QtGui import (
-    QPainter, QPen, QColor, QAction, QCursor, QPolygonF, QFont, QPixmap,
-    QImage, QBrush, QPainterPath, QIcon, QKeySequence, QTextCharFormat,
-    QTextCursor, QTextBlockFormat, QTextOption
+    QPainter, QPen, QColor, QAction, QBrush, QKeySequence, QPixmap, QFont,
 )
 from PySide6.QtCore import (
-    Qt, QPointF, QRectF, QSizeF, QPropertyAnimation, QEasingCurve,
-    QTimer, Signal, QObject, QPoint, QSize, QParallelAnimationGroup
+    Qt, QPointF, QRectF, QSizeF, QTimer, Signal, QObject, QPoint
 )
-from math import sin, cos, pi, atan2, sqrt
 import sys
 import json
-import os
 from enum import Enum
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional
 
 
 class ElementType(Enum):
     """Типы элементов на холсте"""
-    POINT = "point"
-    LINE = "line"
-    STRAIGHT = "straight"
-    TRIANGLE = "triangle"
     RECT = "rect"
-    CIRCLE = "circle"
-    PENTAGON = "pentagon"
-    HEXAGON = "hexagon"
-    ARROW = "arrow"
-    TEXT = "text"
     IMAGE = "image"
-    LINK = "link"
-
-
-class AlignmentType(Enum):
-    """Типы выравнивания"""
-    LEFT = "left"
-    RIGHT = "right"
-    TOP = "top"
-    BOTTOM = "bottom"
-    CENTER_H = "center_h"
-    CENTER_V = "center_v"
-    CENTER = "center"
-    DISTRIBUTE_H = "distribute_h"
-    DISTRIBUTE_V = "distribute_v"
+    TEXT = "text"
 
 
 class CanvasElement(QObject):
@@ -100,8 +71,13 @@ class CanvasElement(QObject):
     @staticmethod
     def from_dict(data: Dict) -> 'CanvasElement':
         """Десериализация элемента"""
+        type_str = data.get('type', 'rect')
+        try:
+            et = ElementType(type_str)
+        except ValueError:
+            et = ElementType.RECT
         element = CanvasElement(
-            ElementType(data['type']),
+            et,
             QPointF(data['position'][0], data['position'][1])
         )
         element.size = QSizeF(data['size'][0], data['size'][1])
@@ -109,7 +85,6 @@ class CanvasElement(QObject):
         element.z_value = data.get('z_value', 0)
         element.data = data.get('data', {})
         return element
-
 
 class Canvas(QWidget):
     """Холст для рисования"""
@@ -140,12 +115,12 @@ class Canvas(QWidget):
         self.setMinimumSize(800, 600)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.background_color = QColor(255, 255, 255)
 
-        # Подсказки
-        self.tooltip_timer = QTimer()
-        self.tooltip_timer.setSingleShot(True)
-        self.tooltip_timer.timeout.connect(self.show_tooltip)
-        self.tooltip_element = None
+    def set_background_color(self, color: QColor):
+        """Устанавливает цвет фона холста."""
+        self.background_color = QColor(color)
+        self.update()
 
     def add_element(self, element: CanvasElement):
         """Добавляет элемент на холст"""
@@ -179,8 +154,8 @@ class Canvas(QWidget):
 
     def get_element_at(self, point: QPointF) -> Optional[CanvasElement]:
         """Возвращает элемент в указанной точке"""
-        # Проверяем в обратном порядке (сверху вниз)
-        for element in reversed(self.elements):
+        # Проверяем сверху вниз по слоям
+        for element in sorted(self.elements, key=lambda e: e.z_value, reverse=True):
             if element.contains_point(point):
                 return element
         return None
@@ -192,27 +167,6 @@ class Canvas(QWidget):
             if rect.intersects(element.get_bounds()):
                 result.append(element)
         return result
-
-    def regular_polygon(self, center: QPointF, size: float, sides: int) -> List[QPointF]:
-        """Создает правильный многоугольник"""
-        radius = size / 2
-        points = []
-        for i in range(sides):
-            angle = 2 * pi * i / sides - pi / 2
-            x = center.x() + radius * cos(angle)
-            y = center.y() + radius * sin(angle)
-            points.append(QPointF(x, y))
-        return points
-
-    def arrow_head(self, start: QPointF, end: QPointF, size: float = 30) -> Tuple[QPointF, QPointF]:
-        """Создает наконечник стрелки"""
-        angle = atan2(end.y() - start.y(), end.x() - start.x())
-        left = angle + pi - pi / 6
-        right = angle + pi + pi / 6
-
-        p1 = QPointF(end.x() + size * cos(left), end.y() + size * sin(left))
-        p2 = QPointF(end.x() + size * cos(right), end.y() + size * sin(right))
-        return p1, p2
 
     def get_resize_handle(self, point: QPointF, bounds: QRectF) -> Optional[int]:
         """Определяет, какой маркер изменения размера находится в точке"""
@@ -233,164 +187,128 @@ class Canvas(QWidget):
                 return i
         return None
 
+    def get_next_z_value(self) -> int:
+        """Возвращает новый слой поверх всех элементов."""
+        if not self.elements:
+            return 0
+        return max(e.z_value for e in self.elements) + 1
+
+    def update_rect_from_points(self, element: CanvasElement, p1: QPointF, p2: QPointF):
+        """Обновляет геометрию прямоугольника по двум точкам."""
+        x = min(p1.x(), p2.x())
+        y = min(p1.y(), p2.y())
+        w = abs(p2.x() - p1.x())
+        h = abs(p2.y() - p1.y())
+        element.position = QPointF(x, y)
+        element.size = QSizeF(max(1.0, w), max(1.0, h))
+
+    def resize_selected_element(self, cursor_pos: QPointF):
+        """Изменяет размер выделенного прямоугольника за маркер."""
+        element = self.selected_elements[0]
+        bounds = element.get_bounds()
+        left, top, right, bottom = bounds.left(), bounds.top(), bounds.right(), bounds.bottom()
+        min_size = 10.0
+
+        if self.resize_handle in [0, 6, 7]:
+            left = min(cursor_pos.x(), right - min_size)
+        if self.resize_handle in [2, 3, 4]:
+            right = max(cursor_pos.x(), left + min_size)
+        if self.resize_handle in [0, 1, 2]:
+            top = min(cursor_pos.y(), bottom - min_size)
+        if self.resize_handle in [4, 5, 6]:
+            bottom = max(cursor_pos.y(), top + min_size)
+
+        element.position = QPointF(left, top)
+        element.size = QSizeF(right - left, bottom - top)
+        element.changed.emit()
+
     def mousePressEvent(self, event):
         pos = event.position()
         tool = self.get_tool()
 
-        # Проверка клика по ссылке (вне зависимости от инструмента)
-        if event.button() == Qt.LeftButton:
-            element = self.get_element_at(pos)
-            if element and element.element_type == ElementType.LINK:
-                target_canvas_id = element.data.get('target_canvas')
-                animate = element.data.get('animate', True)
-                if target_canvas_id:
-                    # Получаем главное окно через parent chain
-                    parent = self.parent()
-                    while parent and not isinstance(parent, QMainWindow):
-                        parent = parent.parent()
-                    if parent and hasattr(parent, 'navigate_to_canvas'):
-                        parent.navigate_to_canvas(target_canvas_id, animate)
-                return
-
         if event.button() == Qt.LeftButton:
             if tool == "select":
-                # Режим выделения
                 element = self.get_element_at(pos)
+                if element and len(self.selected_elements) == 1 and element in self.selected_elements:
+                    self.resize_handle = self.get_resize_handle(pos, element.get_bounds())
                 if element:
                     self.select_element(element, event.modifiers() & Qt.ControlModifier)
-                    self.dragging = True
-                    self.drag_start = pos
+                    if self.resize_handle is None:
+                        self.dragging = True
+                        self.drag_start = pos
                 else:
                     self.clear_selection()
                     self.selection_start = pos
                     self.selection_rect = QRectF(pos, QSizeF(0, 0))
-            else:
-                # Режим рисования
+            elif tool == "rect":
                 self.start_point = pos
                 self.drawing = True
-                self.current_points = [pos]
-
-                if tool == "point":
-                    element = CanvasElement(ElementType.POINT, pos)
-                    element.size = QSizeF(5, 5)
-                    element.data = {'radius': 5}
-                    self.add_element(element)
-                    self.drawing = False
-                elif tool == "line":
-                    # Кривая линия - начинаем сбор точек
-                    pass
-                elif tool in ["straight", "arrow"]:
-                    # Прямая линия или стрелка
-                    element = CanvasElement(ElementType.STRAIGHT if tool == "straight" else ElementType.ARROW, pos)
-                    element.data = {'end': pos}
-                    self.current_element = element
-                elif tool == "triangle":
-                    element = CanvasElement(ElementType.TRIANGLE, pos)
-                    element.data = {'end': pos}
-                    self.current_element = element
-                elif tool == "rect":
-                    element = CanvasElement(ElementType.RECT, pos)
-                    element.data = {'end': pos}
-                    self.current_element = element
-                elif tool == "circle":
-                    element = CanvasElement(ElementType.CIRCLE, pos)
-                    element.data = {'end': pos}
-                    self.current_element = element
-                elif tool in ["pentagon", "hexagon"]:
-                    element = CanvasElement(ElementType.PENTAGON if tool == "pentagon" else ElementType.HEXAGON, pos)
-                    element.data = {'end': pos}
-                    self.current_element = element
-                elif tool == "text":
-                    element = CanvasElement(ElementType.TEXT, pos)
-                    element.data = {
-                        'text': 'Текст',
-                        'font_family': 'Arial',
-                        'font_size': 12,
-                        'alignment': Qt.AlignLeft,
-                        'color': QColor(0, 0, 0).name()
-                    }
-                    self.add_element(element)
-                    self.drawing = False
-        elif tool == "image":
-            # Загрузка изображения будет обработана отдельно
-            pass
-        elif tool == "link":
-            # Создание ссылки будет обработано через диалог
-            pass
+                self.current_element = CanvasElement(ElementType.RECT, pos)
+                self.current_element.z_value = self.get_next_z_value()
+                self.current_element.data = {}
+                self.update_rect_from_points(self.current_element, self.start_point, pos)
+            elif tool == "text":
+                self.start_point = pos
+                self.drawing = True
+                self.current_element = CanvasElement(ElementType.TEXT, pos)
+                self.current_element.z_value = self.get_next_z_value()
+                self.current_element.color = QColor(30, 30, 30)
+                self.current_element.data = {
+                    "text": "Текст",
+                    "font_family": "Segoe UI",
+                    "font_size": 14,
+                }
+                self.update_rect_from_points(self.current_element, self.start_point, pos)
 
         if event.button() == Qt.RightButton:
-            # Контекстное меню
             element = self.get_element_at(pos)
             if element:
                 self.show_context_menu(element, event.globalPos())
+
+    def mouseDoubleClickEvent(self, event):
+        """Текст — редактирование; ссылка — переход по двойному щелчку."""
+        if event.button() == Qt.LeftButton:
+            pos = event.position()
+            element = self.get_element_at(pos)
+            if element and element.element_type == ElementType.TEXT:
+                self.edit_text_element(element)
+                return
+            if element and element.data.get("target_canvas"):
+                target_canvas_id = element.data.get("target_canvas")
+                animate = element.data.get("animate", True)
+                parent = self.parent()
+                while parent and not isinstance(parent, QMainWindow):
+                    parent = parent.parent()
+                if parent and hasattr(parent, "navigate_to_canvas"):
+                    parent.navigate_to_canvas(target_canvas_id, animate)
+                return
+        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event):
         pos = event.position()
         tool = self.get_tool()
 
-        # Подсказки
-        element = self.get_element_at(pos)
-        if element != self.tooltip_element:
-            self.tooltip_timer.stop()
-            self.tooltip_element = element
-            if element:
-                self.tooltip_timer.start(500)  # Показать через 500мс
-
-        if tool == "select" and self.dragging and self.drag_start and self.selected_elements:
-            # Перемещение выделенных элементов
+        if tool == "select" and self.resize_handle is not None and len(self.selected_elements) == 1:
+            self.resize_selected_element(pos)
+            self.update()
+        elif tool == "select" and self.dragging and self.drag_start and self.selected_elements:
             delta = pos - self.drag_start
             for element in self.selected_elements:
                 element.move(delta)
             self.drag_start = pos
             self.update()
         elif tool == "select" and self.selection_start:
-            # Рисование прямоугольника выделения
             self.selection_rect = QRectF(self.selection_start, pos).normalized()
             self.update()
-        elif self.drawing:
-            if tool == "line":
-                # Кривая линия
-                self.current_points.append(pos)
-                self.update()
-            elif self.current_element:
-                # Обновление размера элемента
-                end = pos
-                self.current_element.data['end'] = end
-
-                if tool in ["straight", "arrow"]:
-                    # Прямая линия или стрелка
-                    dx = end.x() - self.start_point.x()
-                    dy = end.y() - self.start_point.y()
-                    self.current_element.size = QSizeF(sqrt(dx * dx + dy * dy), 1)
-                elif tool == "rect":
-                    # Прямоугольник
-                    x = min(self.start_point.x(), end.x())
-                    y = min(self.start_point.y(), end.y())
-                    w = abs(end.x() - self.start_point.x())
-                    h = abs(end.y() - self.start_point.y())
-                    self.current_element.position = QPointF(x, y)
-                    self.current_element.size = QSizeF(w, h)
-                elif tool in ["circle", "triangle", "pentagon", "hexagon"]:
-                    # Фигуры с размером
-                    size = min(abs(end.x() - self.start_point.x()), abs(end.y() - self.start_point.y()))
-                    self.current_element.size = QSizeF(size, size)
-
-                self.update()
-
-    def mouseDoubleClickEvent(self, event):
-        """Обработка двойного клика для редактирования элементов"""
-        if event.button() == Qt.LeftButton:
-            pos = event.position()
-            element = self.get_element_at(pos)
-            if element:
-                self.edit_element(element)
+        elif self.drawing and self.current_element and self.start_point:
+            self.update_rect_from_points(self.current_element, self.start_point, pos)
+            self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             tool = self.get_tool()
 
             if tool == "select" and self.selection_start:
-                # Завершение выделения
                 if self.selection_rect:
                     elements = self.get_elements_in_rect(self.selection_rect)
                     for element in elements:
@@ -401,258 +319,144 @@ class Canvas(QWidget):
             elif tool == "select":
                 self.dragging = False
                 self.drag_start = None
+                self.resize_handle = None
             elif self.drawing:
-                if tool == "line" and len(self.current_points) > 1:
-                    # Сохранение кривой линии
-                    element = CanvasElement(ElementType.LINE, self.current_points[0])
-                    element.data = {'points': [(p.x(), p.y()) for p in self.current_points]}
-                    # Вычисляем размеры
-                    xs = [p.x() for p in self.current_points]
-                    ys = [p.y() for p in self.current_points]
-                    element.position = QPointF(min(xs), min(ys))
-                    element.size = QSizeF(max(xs) - min(xs), max(ys) - min(ys))
-                    self.add_element(element)
-                    self.current_points = []
-                elif self.current_element:
-                    # Сохранение элемента
+                if self.current_element and self.current_element.size.width() >= 5 and self.current_element.size.height() >= 5:
                     self.add_element(self.current_element)
-                    self.current_element = None
-
+                self.current_element = None
                 self.drawing = False
                 self.update()
 
-    def show_tooltip(self):
-        """Показывает подсказку для элемента"""
-        if self.tooltip_element:
-            tooltip_text = self.get_tooltip_text(self.tooltip_element)
-            if tooltip_text:
-                QToolTip.showText(QCursor.pos(), tooltip_text, self)
-
-    def get_tooltip_text(self, element: CanvasElement) -> str:
-        """Возвращает текст подсказки для элемента"""
-        tooltips = {
-            ElementType.POINT: "Точка - базовый элемент",
-            ElementType.LINE: "Кривая линия - рисуется от руки",
-            ElementType.STRAIGHT: "Прямая линия - соединяет две точки",
-            ElementType.TRIANGLE: "Треугольник - правильный треугольник",
-            ElementType.RECT: "Прямоугольник - можно изменять размер",
-            ElementType.CIRCLE: "Круг - можно изменять размер",
-            ElementType.PENTAGON: "Пятиугольник - правильный многоугольник",
-            ElementType.HEXAGON: "Шестиугольник - правильный многоугольник",
-            ElementType.ARROW: "Стрелка - указывает направление",
-            ElementType.TEXT: "Текст - двойной клик для редактирования",
-            ElementType.IMAGE: "Изображение - внешний файл",
-            ElementType.LINK: "Ссылка - переход на другой холст"
-        }
-        return tooltips.get(element.element_type, "Элемент")
+    def edit_text_element(self, element: CanvasElement):
+        """Диалог редактирования текстового блока."""
+        if element.element_type != ElementType.TEXT:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Редактирование текста")
+        layout = QVBoxLayout(dialog)
+        text_edit = QTextEdit()
+        text_edit.setPlainText(element.data.get("text", ""))
+        layout.addWidget(QLabel("Текст:"))
+        layout.addWidget(text_edit)
+        font_family = QComboBox()
+        font_family.addItems(
+            ["Segoe UI", "Arial", "Times New Roman", "Courier New", "Consolas", "Verdana"]
+        )
+        fam = element.data.get("font_family", "Segoe UI")
+        i = font_family.findText(fam)
+        if i >= 0:
+            font_family.setCurrentIndex(i)
+        else:
+            font_family.insertItem(0, fam)
+            font_family.setCurrentIndex(0)
+        layout.addWidget(QLabel("Шрифт:"))
+        layout.addWidget(font_family)
+        font_size = QSpinBox()
+        font_size.setRange(6, 96)
+        font_size.setValue(int(element.data.get("font_size", 14)))
+        layout.addWidget(QLabel("Размер:"))
+        layout.addWidget(font_size)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec():
+            element.data["text"] = text_edit.toPlainText()
+            element.data["font_family"] = font_family.currentText()
+            element.data["font_size"] = font_size.value()
+            element.changed.emit()
+            self.update()
 
     def show_context_menu(self, element: CanvasElement, global_pos: QPoint):
         """Показывает контекстное меню для элемента"""
         menu = QMenu(self)
-
-        edit_action = menu.addAction("Редактировать")
         delete_action = menu.addAction("Удалить")
+        color_action = None
+        replace_image_action = None
+        edit_text_action = None
+        text_color_action = None
+        if element.element_type == ElementType.RECT and not element.data.get("target_canvas"):
+            menu.addSeparator()
+            color_action = menu.addAction("Цвет заливки...")
+        elif element.element_type == ElementType.IMAGE:
+            menu.addSeparator()
+            replace_image_action = menu.addAction("Другое изображение...")
+        elif element.element_type == ElementType.TEXT:
+            menu.addSeparator()
+            edit_text_action = menu.addAction("Редактировать текст...")
+            text_color_action = menu.addAction("Цвет текста...")
         menu.addSeparator()
-        align_action = menu.addAction("Выровнять...")
         link_action = menu.addAction("Создать ссылку...")
+        clear_link_action = menu.addAction("Убрать ссылку")
+        menu.addSeparator()
+        up_action = menu.addAction("Слой выше")
+        down_action = menu.addAction("Слой ниже")
+        top_action = menu.addAction("На передний план")
+        bottom_action = menu.addAction("На задний план")
 
         action = menu.exec(global_pos)
         if action == delete_action:
             self.remove_element(element)
-        elif action == edit_action:
-            self.edit_element(element)
-        elif action == align_action:
-            self.show_alignment_dialog()
+        elif edit_text_action is not None and action == edit_text_action:
+            self.edit_text_element(element)
+        elif text_color_action is not None and action == text_color_action:
+            c = QColorDialog.getColor(element.color, self, "Цвет текста")
+            if c.isValid():
+                element.color = c
+                element.changed.emit()
+                self.update()
+        elif color_action is not None and action == color_action:
+            c = QColorDialog.getColor(element.color, self, "Цвет заливки")
+            if c.isValid():
+                element.color = c
+                element.changed.emit()
+                self.update()
+        elif replace_image_action is not None and action == replace_image_action:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Выберите изображение", "",
+                "Изображения (*.png *.jpg *.jpeg *.bmp *.gif *.webp)"
+            )
+            if path:
+                pm = QPixmap(path)
+                if not pm.isNull():
+                    element.data["image_path"] = path
+                    element.changed.emit()
+                    self.update()
+                else:
+                    QMessageBox.warning(self, "Ошибка", "Не удалось загрузить файл изображения.")
         elif action == link_action:
-            # Выделяем элемент и создаем ссылку
             self.select_element(element)
-            # Сигнализируем главному окну о необходимости создать ссылку
             parent = self.parent()
             while parent and not isinstance(parent, QMainWindow):
                 parent = parent.parent()
             if parent and hasattr(parent, 'create_link_for_element'):
                 parent.create_link_for_element(element)
-
-    def edit_element(self, element: CanvasElement):
-        """Редактирует элемент"""
-        if element.element_type == ElementType.TEXT:
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Редактирование текста")
-            layout = QVBoxLayout(dialog)
-
-            text_edit = QTextEdit()
-            text_edit.setPlainText(element.data.get('text', ''))
-            layout.addWidget(QLabel("Текст:"))
-            layout.addWidget(text_edit)
-
-            # Настройки шрифта
-            font_family = QComboBox()
-            font_family.addItems(['Arial', 'Times New Roman', 'Courier New', 'Verdana'])
-            font_family.setCurrentText(element.data.get('font_family', 'Arial'))
-            layout.addWidget(QLabel("Шрифт:"))
-            layout.addWidget(font_family)
-
-            font_size = QSpinBox()
-            font_size.setRange(8, 72)
-            font_size.setValue(element.data.get('font_size', 12))
-            layout.addWidget(QLabel("Размер:"))
-            layout.addWidget(font_size)
-
-            # Выравнивание
-            alignment = QComboBox()
-            alignment.addItems(['Слева', 'По центру', 'Справа'])
-            current_align = element.data.get('alignment', Qt.AlignLeft)
-            if current_align == Qt.AlignCenter:
-                alignment.setCurrentIndex(1)
-            elif current_align == Qt.AlignRight:
-                alignment.setCurrentIndex(2)
-            layout.addWidget(QLabel("Выравнивание:"))
-            layout.addWidget(alignment)
-
-            # Цвет
-            color_btn = QPushButton("Выбрать цвет")
-            color_btn.clicked.connect(lambda: self.choose_color(element))
-            layout.addWidget(color_btn)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
-
-            if dialog.exec():
-                element.data['text'] = text_edit.toPlainText()
-                element.data['font_family'] = font_family.currentText()
-                element.data['font_size'] = font_size.value()
-                align_map = {0: Qt.AlignLeft, 1: Qt.AlignCenter, 2: Qt.AlignRight}
-                element.data['alignment'] = align_map[alignment.currentIndex()]
-                self.update()
-
-    def choose_color(self, element: CanvasElement):
-        """Выбор цвета для элемента"""
-        color = QColorDialog.getColor(element.color, self)
-        if color.isValid():
-            element.color = color
-            if element.element_type == ElementType.TEXT:
-                element.data['color'] = color.name()
+        elif action == clear_link_action:
+            element.data.pop("target_canvas", None)
+            element.data.pop("animate", None)
             self.update()
-
-    def show_alignment_dialog(self):
-        """Показывает диалог выравнивания"""
-        if not self.selected_elements:
-            QMessageBox.information(self, "Информация", "Выберите элементы для выравнивания")
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Выравнивание элементов")
-        layout = QVBoxLayout(dialog)
-
-        layout.addWidget(QLabel("Выберите тип выравнивания:"))
-
-        align_buttons = QGroupBox("Выравнивание")
-        align_layout = QVBoxLayout(align_buttons)
-
-        align_type = None
-
-        def create_align_button(text, align):
-            btn = QPushButton(text)
-            btn.clicked.connect(lambda: setattr(dialog, 'align_result', align) or dialog.accept())
-            align_layout.addWidget(btn)
-
-        create_align_button("По левому краю", AlignmentType.LEFT)
-        create_align_button("По правому краю", AlignmentType.RIGHT)
-        create_align_button("По верхнему краю", AlignmentType.TOP)
-        create_align_button("По нижнему краю", AlignmentType.BOTTOM)
-        create_align_button("По центру горизонтально", AlignmentType.CENTER_H)
-        create_align_button("По центру вертикально", AlignmentType.CENTER_V)
-        create_align_button("По центру", AlignmentType.CENTER)
-        create_align_button("Распределить горизонтально", AlignmentType.DISTRIBUTE_H)
-        create_align_button("Распределить вертикально", AlignmentType.DISTRIBUTE_V)
-
-        layout.addWidget(align_buttons)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        dialog.align_result = None
-        if dialog.exec() and hasattr(dialog, 'align_result') and dialog.align_result:
-            self.align_elements(self.selected_elements, dialog.align_result)
-
-    def align_elements(self, elements: List[CanvasElement], align_type: AlignmentType):
-        """Выравнивает элементы"""
-        if len(elements) < 2:
-            return
-
-        bounds_list = [e.get_bounds() for e in elements]
-
-        if align_type == AlignmentType.LEFT:
-            min_x = min(b.left() for b in bounds_list)
-            for element in elements:
-                element.position.setX(min_x)
-        elif align_type == AlignmentType.RIGHT:
-            max_x = max(b.right() for b in bounds_list)
-            for element in elements:
-                element.position.setX(max_x - element.size.width())
-        elif align_type == AlignmentType.TOP:
-            min_y = min(b.top() for b in bounds_list)
-            for element in elements:
-                element.position.setY(min_y)
-        elif align_type == AlignmentType.BOTTOM:
-            max_y = max(b.bottom() for b in bounds_list)
-            for element in elements:
-                element.position.setY(max_y - element.size.height())
-        elif align_type == AlignmentType.CENTER_H:
-            center_x = sum(b.center().x() for b in bounds_list) / len(bounds_list)
-            for element in elements:
-                element.position.setX(center_x - element.size.width() / 2)
-        elif align_type == AlignmentType.CENTER_V:
-            center_y = sum(b.center().y() for b in bounds_list) / len(bounds_list)
-            for element in elements:
-                element.position.setY(center_y - element.size.height() / 2)
-        elif align_type == AlignmentType.CENTER:
-            center_x = sum(b.center().x() for b in bounds_list) / len(bounds_list)
-            center_y = sum(b.center().y() for b in bounds_list) / len(bounds_list)
-            for element in elements:
-                element.position = QPointF(center_x - element.size.width() / 2,
-                                           center_y - element.size.height() / 2)
-        elif align_type == AlignmentType.DISTRIBUTE_H:
-            xs = sorted([b.left() for b in bounds_list])
-            if len(xs) > 2:
-                step = (xs[-1] - xs[0]) / (len(xs) - 1)
-                sorted_elements = sorted(elements, key=lambda e: e.position.x())
-                for i, element in enumerate(sorted_elements):
-                    element.position.setX(xs[0] + i * step)
-        elif align_type == AlignmentType.DISTRIBUTE_V:
-            ys = sorted([b.top() for b in bounds_list])
-            if len(ys) > 2:
-                step = (ys[-1] - ys[0]) / (len(ys) - 1)
-                sorted_elements = sorted(elements, key=lambda e: e.position.y())
-                for i, element in enumerate(sorted_elements):
-                    element.position.setY(ys[0] + i * step)
-
-        self.update()
-
-    def create_link_dialog(self, element: CanvasElement):
-        """Создает диалог для создания ссылки"""
-        # Это будет реализовано в MainWindow, так как нужен доступ к списку холстов
-        # Временная реализация - элемент уже должен быть выбран
-        pass
+        elif action in (up_action, down_action, top_action, bottom_action):
+            self.select_element(element)
+            parent = self.parent()
+            while parent and not isinstance(parent, QMainWindow):
+                parent = parent.parent()
+            if not parent:
+                return
+            if action == up_action and hasattr(parent, "move_layer_up"):
+                parent.move_layer_up()
+            elif action == down_action and hasattr(parent, "move_layer_down"):
+                parent.move_layer_down()
+            elif action == top_action and hasattr(parent, "move_layer_to_top"):
+                parent.move_layer_to_top()
+            elif action == bottom_action and hasattr(parent, "move_layer_to_bottom"):
+                parent.move_layer_to_bottom()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         # Фон
-        painter.fillRect(self.rect(), QColor(255, 255, 255))
-
-        # Сетка (опционально)
-        grid_size = 20
-        pen = QPen(QColor(240, 240, 240))
-        painter.setPen(pen)
-        for x in range(0, self.width(), grid_size):
-            painter.drawLine(x, 0, x, self.height())
-        for y in range(0, self.height(), grid_size):
-            painter.drawLine(0, y, self.width(), y)
+        painter.fillRect(self.rect(), self.background_color)
 
         # Рисование элементов
         sorted_elements = sorted(self.elements, key=lambda e: e.z_value)
@@ -660,14 +464,8 @@ class Canvas(QWidget):
             self.draw_element(painter, element)
 
         # Рисование текущего элемента
-        if self.drawing:
-            if self.get_tool() == "line" and len(self.current_points) > 1:
-                pen = QPen(QColor(150, 0, 150), 3)
-                painter.setPen(pen)
-                for i in range(1, len(self.current_points)):
-                    painter.drawLine(self.current_points[i - 1], self.current_points[i])
-            elif self.current_element:
-                self.draw_element(painter, self.current_element)
+        if self.drawing and self.current_element:
+            self.draw_element(painter, self.current_element)
 
         # Рисование прямоугольника выделения
         if self.selection_rect:
@@ -683,97 +481,71 @@ class Canvas(QWidget):
 
     def draw_element(self, painter: QPainter, element: CanvasElement):
         """Рисует элемент на холсте"""
-        pen = QPen(element.color, 3)
-        painter.setPen(pen)
+        rect = QRectF(element.position, element.size)
 
-        if element.element_type == ElementType.POINT:
-            radius = element.data.get('radius', 5)
-            painter.drawEllipse(element.position, radius, radius)
+        if element.element_type == ElementType.IMAGE:
+            path = element.data.get("image_path", "")
+            if path and os.path.isfile(path):
+                pix = QPixmap(path)
+                if not pix.isNull():
+                    scaled = pix.scaled(
+                        rect.size().toSize(),
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation,
+                    )
+                    painter.fillRect(rect, QColor(245, 245, 245))
+                    x = rect.x() + (rect.width() - scaled.width()) / 2
+                    y = rect.y() + (rect.height() - scaled.height()) / 2
+                    painter.drawPixmap(QPointF(x, y), scaled)
+                    painter.setPen(QPen(QColor(80, 80, 80), 1))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawRect(rect)
+                    if element.data.get("target_canvas"):
+                        painter.fillRect(rect, QColor(0, 120, 215, 90))
+                        painter.setPen(QPen(Qt.white))
+                        painter.drawText(rect, Qt.AlignCenter, "->")
+                    return
+            painter.fillRect(rect, QColor(230, 230, 230))
+            painter.setPen(QPen(QColor(160, 160, 160), 1))
+            painter.drawText(rect, Qt.AlignCenter, "Нет изображения")
+            painter.drawRect(rect)
+            return
 
-        elif element.element_type == ElementType.LINE:
-            points = element.data.get('points', [])
-            if len(points) > 1:
-                for i in range(1, len(points)):
-                    painter.drawLine(QPointF(points[i - 1][0], points[i - 1][1]),
-                                     QPointF(points[i][0], points[i][1]))
-
-        elif element.element_type == ElementType.STRAIGHT:
-            end = element.data.get('end', element.position)
-            painter.drawLine(element.position, QPointF(end[0], end[1]) if isinstance(end, tuple) else end)
-
-        elif element.element_type == ElementType.TRIANGLE:
-            size = element.size.width()
-            center = element.position + QPointF(size / 2, size / 2)
-            points = self.regular_polygon(center, size, 3)
-            painter.drawPolygon(QPolygonF(points))
-
-        elif element.element_type == ElementType.RECT:
-            painter.drawRect(QRectF(element.position, element.size))
-
-        elif element.element_type == ElementType.CIRCLE:
-            size = element.size.width()
-            painter.drawEllipse(element.position, size, size)
-
-        elif element.element_type == ElementType.PENTAGON:
-            center = element.position + QPointF(element.size.width() / 2, element.size.height() / 2)
-            points = self.regular_polygon(center, element.size.width(), 5)
-            painter.drawPolygon(QPolygonF(points))
-
-        elif element.element_type == ElementType.HEXAGON:
-            center = element.position + QPointF(element.size.width() / 2, element.size.height() / 2)
-            points = self.regular_polygon(center, element.size.width(), 6)
-            painter.drawPolygon(QPolygonF(points))
-
-        elif element.element_type == ElementType.ARROW:
-            end = element.data.get('end', element.position)
-            end_point = QPointF(end[0], end[1]) if isinstance(end, tuple) else end
-            painter.drawLine(element.position, end_point)
-            h1, h2 = self.arrow_head(element.position, end_point)
-            painter.drawLine(end_point, h1)
-            painter.drawLine(end_point, h2)
-
-        elif element.element_type == ElementType.TEXT:
-            font = QFont(element.data.get('font_family', 'Arial'), element.data.get('font_size', 12))
+        if element.element_type == ElementType.TEXT:
+            font = QFont(
+                element.data.get("font_family", "Segoe UI"),
+                int(element.data.get("font_size", 14)),
+            )
             painter.setFont(font)
-            color = QColor(element.data.get('color', '#000000'))
-            pen.setColor(color)
-            painter.setPen(pen)
-
-            text = element.data.get('text', '')
-            alignment = element.data.get('alignment', Qt.AlignLeft)
-
-            rect = QRectF(element.position, element.size)
-            flags = alignment | Qt.AlignTop | Qt.TextWordWrap
-
-            painter.drawText(rect, flags, text)
-            # Рисуем рамку текстового блока
-            pen.setColor(QColor(200, 200, 200))
-            painter.setPen(pen)
+            painter.setPen(QPen(element.color, 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawText(
+                rect,
+                int(Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap),
+                element.data.get("text", ""),
+            )
+            painter.setPen(QPen(QColor(180, 180, 180), 1))
             painter.drawRect(rect)
+            if element.data.get("target_canvas"):
+                painter.fillRect(rect, QColor(0, 120, 215, 85))
+                painter.setPen(QPen(Qt.white))
+                painter.drawText(rect, Qt.AlignCenter, "->")
+            return
 
-        elif element.element_type == ElementType.IMAGE:
-            image_path = element.data.get('image_path', '')
-            if image_path and os.path.exists(image_path):
-                pixmap = QPixmap(image_path)
-                scaled_pixmap = pixmap.scaled(element.size.toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                painter.drawPixmap(element.position.toPoint(), scaled_pixmap)
-            else:
-                # Рисуем заглушку
-                rect = QRectF(element.position, element.size)
-                pen.setColor(QColor(200, 200, 200))
-                painter.setPen(pen)
-                painter.drawRect(rect)
-                painter.drawText(rect, Qt.AlignCenter, "Изображение")
-
-        elif element.element_type == ElementType.LINK:
-            # Рисуем ссылку как специальную иконку
-            rect = QRectF(element.position, element.size)
-            pen.setColor(QColor(0, 120, 215))
-            painter.setPen(pen)
-            brush = QBrush(QColor(0, 120, 215, 50))
-            painter.setBrush(brush)
-            painter.drawRect(rect)
-            painter.drawText(rect, Qt.AlignCenter, "→")
+        # Прямоугольник — заливка
+        if element.data.get("target_canvas"):
+            fill = QColor(0, 120, 215, 200)
+            pen = QPen(QColor(0, 70, 140), 2)
+        else:
+            fill = QColor(element.color)
+            fill.setAlpha(255)
+            pen = QPen(element.color.darker(130), 2)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(fill))
+        painter.drawRect(rect)
+        if element.data.get("target_canvas"):
+            painter.setPen(QPen(Qt.white))
+            painter.drawText(rect, Qt.AlignCenter, "->")
 
     def draw_selection_handles(self, painter: QPainter, element: CanvasElement):
         """Рисует маркеры выделения"""
@@ -805,19 +577,6 @@ class Canvas(QWidget):
         elif event.key() == Qt.Key_Escape:
             self.clear_selection()
         super().keyPressEvent(event)
-
-    def load_image(self, image_path: str) -> Optional[CanvasElement]:
-        """Загружает изображение на холст"""
-        if not os.path.exists(image_path):
-            return None
-
-        pixmap = QPixmap(image_path)
-        element = CanvasElement(ElementType.IMAGE, QPointF(50, 50))
-        element.size = QSizeF(pixmap.width(), pixmap.height())
-        element.data = {'image_path': image_path}
-        self.add_element(element)
-        return element
-
 
 class MainWindow(QMainWindow):
     """Главное окно приложения"""
@@ -860,34 +619,28 @@ class MainWindow(QMainWindow):
 
         # Группы инструментов
         self.add_tool_button(toolbar, "Выделение", "select", True)
-        toolbar.addSeparator()
-
-        self.add_tool_button(toolbar, "Точка", "point")
-        self.add_tool_button(toolbar, "Кривая", "line")
-        self.add_tool_button(toolbar, "Прямая", "straight")
-        self.add_tool_button(toolbar, "Стрелка", "arrow")
-        toolbar.addSeparator()
-
         self.add_tool_button(toolbar, "Прямоугольник", "rect")
-        self.add_tool_button(toolbar, "Круг", "circle")
-        self.add_tool_button(toolbar, "Треугольник", "triangle")
-        self.add_tool_button(toolbar, "Пятиугольник", "pentagon")
-        self.add_tool_button(toolbar, "Шестиугольник", "hexagon")
         toolbar.addSeparator()
-
         self.add_tool_button(toolbar, "Текст", "text")
         toolbar.addSeparator()
-
         self.add_tool_button(toolbar, "Изображение", "image")
+        toolbar.addSeparator()
         self.add_tool_button(toolbar, "Ссылка", "link")
 
-        # Панель выравнивания
-        align_toolbar = QToolBar("Выравнивание")
-        self.addToolBar(Qt.RightToolBarArea, align_toolbar)
-
-        align_btn = QPushButton("Выровнять")
-        align_btn.clicked.connect(self.show_alignment_dialog)
-        align_toolbar.addWidget(align_btn)
+        layers_toolbar = QToolBar("Слои")
+        self.addToolBar(Qt.TopToolBarArea, layers_toolbar)
+        up_action = QAction("Выше", self)
+        up_action.triggered.connect(self.move_layer_up)
+        layers_toolbar.addAction(up_action)
+        down_action = QAction("Ниже", self)
+        down_action.triggered.connect(self.move_layer_down)
+        layers_toolbar.addAction(down_action)
+        top_action = QAction("Наверх", self)
+        top_action.triggered.connect(self.move_layer_to_top)
+        layers_toolbar.addAction(top_action)
+        bottom_action = QAction("Вниз", self)
+        bottom_action.triggered.connect(self.move_layer_to_bottom)
+        layers_toolbar.addAction(bottom_action)
 
         # Список холстов
         self.canvas_list = QListWidget()
@@ -917,6 +670,7 @@ class MainWindow(QMainWindow):
         # Вид
         view_menu = menubar.addMenu("Вид")
         view_menu.addAction("Список холстов", self.toggle_canvas_list)
+        view_menu.addAction("Цвет фона холста...", lambda: self.change_canvas_background_color())
 
     def create_dock_widget(self, title: str, widget: QWidget):
         """Создает dock виджет"""
@@ -928,6 +682,7 @@ class MainWindow(QMainWindow):
         """Добавляет кнопку инструмента"""
         action = QAction(name, self)
         action.setCheckable(True)
+        action.setData(tool_id)
         action.setChecked(checked and tool_id == self.current_tool)
         action.triggered.connect(lambda checked, t=tool_id: self.select_tool(t))
         toolbar.addAction(action)
@@ -935,17 +690,9 @@ class MainWindow(QMainWindow):
         # Подсказка
         tooltips = {
             "select": "Выделение элементов",
-            "point": "Точка",
-            "line": "Кривая линия",
-            "straight": "Прямая линия",
-            "arrow": "Стрелка",
             "rect": "Прямоугольник",
-            "circle": "Круг",
-            "triangle": "Треугольник",
-            "pentagon": "Пятиугольник",
-            "hexagon": "Шестиугольник",
-            "text": "Текст",
-            "image": "Изображение",
+            "text": "Текст — протяните рамку, двойной клик для правки",
+            "image": "Вставить изображение с компьютера",
             "link": "Ссылка на другой холст"
         }
         action.setToolTip(tooltips.get(tool_id, name))
@@ -959,10 +706,7 @@ class MainWindow(QMainWindow):
             if action.isCheckable():
                 action.setChecked(action.data() == tool_id if hasattr(action, 'data') else False)
 
-        # Если выбран инструмент изображения, открываем диалог
-        if tool_id == "image":
-            self.load_image_dialog()
-        elif tool_id == "link":
+        if tool_id == "link":
             # Для ссылки нужно сначала выбрать элемент
             canvas = self.get_current_canvas()
             if canvas and canvas.selected_elements:
@@ -971,6 +715,33 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Информация",
                                         "Выберите элемент, затем используйте инструмент 'Ссылка' или контекстное меню")
                 self.select_tool("select")
+        elif tool_id == "image":
+            self.load_image_dialog()
+
+    def load_image_dialog(self):
+        """Добавляет на холст изображение с диска."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Выберите изображение", "",
+            "Изображения (*.png *.jpg *.jpeg *.bmp *.gif *.webp)"
+        )
+        canvas = self.get_current_canvas()
+        if not path or not canvas:
+            self.select_tool("select")
+            return
+        pix = QPixmap(path)
+        if pix.isNull():
+            QMessageBox.warning(self, "Ошибка", "Не удалось загрузить файл изображения.")
+            self.select_tool("select")
+            return
+        max_w, max_h = 480.0, 360.0
+        w, h = float(pix.width()), float(pix.height())
+        scale = min(1.0, max_w / w, max_h / h)
+        el = CanvasElement(ElementType.IMAGE, QPointF(60, 60))
+        el.size = QSizeF(w * scale, h * scale)
+        el.data = {"image_path": path}
+        el.z_value = canvas.get_next_z_value()
+        canvas.add_element(el)
+        self.select_tool("select")
 
     def get_current_tool(self):
         """Возвращает текущий инструмент"""
@@ -1007,6 +778,9 @@ class MainWindow(QMainWindow):
 
     def close_canvas_tab(self, index: int):
         """Закрывает вкладку холста"""
+        if self.tab_widget.count() <= 1:
+            QMessageBox.information(self, "Информация", "Должен остаться минимум один холст")
+            return
         widget = self.tab_widget.widget(index)
         if widget:
             canvas_id = widget.canvas_id
@@ -1047,17 +821,68 @@ class MainWindow(QMainWindow):
                     self.current_canvas_id = canvas_id
                     break
 
-    def load_image_dialog(self):
-        """Диалог загрузки изображения"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Выберите изображение", "", "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
-        )
-        if file_path:
-            canvas = self.get_current_canvas()
-            if canvas:
-                canvas.load_image(file_path)
-                # Возвращаемся к инструменту выделения
-                self.select_tool("select")
+    def _selected_elements(self) -> List[CanvasElement]:
+        canvas = self.get_current_canvas()
+        if not canvas:
+            return []
+        return canvas.selected_elements
+
+    def _normalize_z_values(self, canvas: Canvas):
+        ordered = sorted(canvas.elements, key=lambda e: e.z_value)
+        for idx, element in enumerate(ordered):
+            element.z_value = idx
+
+    def move_layer_up(self):
+        canvas = self.get_current_canvas()
+        selected = self._selected_elements()
+        if not canvas or not selected:
+            return
+        self._normalize_z_values(canvas)
+        ordered = sorted(canvas.elements, key=lambda e: e.z_value)
+        for element in sorted(selected, key=lambda e: e.z_value, reverse=True):
+            idx = ordered.index(element)
+            if idx < len(ordered) - 1:
+                above = ordered[idx + 1]
+                element.z_value, above.z_value = above.z_value, element.z_value
+                ordered[idx], ordered[idx + 1] = ordered[idx + 1], ordered[idx]
+        canvas.update()
+
+    def move_layer_down(self):
+        canvas = self.get_current_canvas()
+        selected = self._selected_elements()
+        if not canvas or not selected:
+            return
+        self._normalize_z_values(canvas)
+        ordered = sorted(canvas.elements, key=lambda e: e.z_value)
+        for element in sorted(selected, key=lambda e: e.z_value):
+            idx = ordered.index(element)
+            if idx > 0:
+                below = ordered[idx - 1]
+                element.z_value, below.z_value = below.z_value, element.z_value
+                ordered[idx], ordered[idx - 1] = ordered[idx - 1], ordered[idx]
+        canvas.update()
+
+    def move_layer_to_top(self):
+        canvas = self.get_current_canvas()
+        selected = self._selected_elements()
+        if not canvas or not selected:
+            return
+        top_z = max((e.z_value for e in canvas.elements), default=-1)
+        for element in sorted(selected, key=lambda e: e.z_value):
+            top_z += 1
+            element.z_value = top_z
+        self._normalize_z_values(canvas)
+        canvas.update()
+
+    def move_layer_to_bottom(self):
+        canvas = self.get_current_canvas()
+        selected = self._selected_elements()
+        if not canvas or not selected:
+            return
+        for element in selected:
+            element.z_value -= 10000
+        self._normalize_z_values(canvas)
+        canvas.update()
 
     def create_link_dialog(self, element: Optional[CanvasElement] = None):
         """Создает диалог для создания ссылки на другой холст"""
@@ -1106,10 +931,8 @@ class MainWindow(QMainWindow):
 
             # Создаем ссылку для каждого элемента
             for element in elements_to_link:
-                element.element_type = ElementType.LINK
                 element.data['target_canvas'] = target_canvas_id
                 element.data['animate'] = animate
-                element.size = QSizeF(30, 30)
 
             canvas.update()
             self.select_tool("select")
@@ -1120,11 +943,14 @@ class MainWindow(QMainWindow):
         """Создает ссылку для конкретного элемента (вызывается из контекстного меню)"""
         self.create_link_dialog(element)
 
-    def show_alignment_dialog(self):
-        """Показывает диалог выравнивания"""
-        canvas = self.get_current_canvas()
-        if canvas:
-            canvas.show_alignment_dialog()
+    def change_canvas_background_color(self, canvas: Optional[Canvas] = None):
+        """Диалог выбора цвета фона текущего (или переданного) холста."""
+        canvas = canvas or self.get_current_canvas()
+        if not canvas:
+            return
+        c = QColorDialog.getColor(canvas.background_color, self, "Цвет фона холста")
+        if c.isValid():
+            canvas.set_background_color(c)
 
     def toggle_canvas_list(self):
         """Переключает видимость списка холстов"""
@@ -1195,7 +1021,8 @@ class MainWindow(QMainWindow):
         for canvas_id, canvas in self.canvases.items():
             project_data['canvases'][canvas_id] = {
                 'elements': [e.to_dict() for e in canvas.elements],
-                'name': self.tab_widget.tabText(self.tab_widget.indexOf(canvas))
+                'name': self.tab_widget.tabText(self.tab_widget.indexOf(canvas)),
+                'background_color': canvas.background_color.name(QColor.NameFormat.HexArgb),
             }
 
         try:
@@ -1233,11 +1060,23 @@ class MainWindow(QMainWindow):
                     element = CanvasElement.from_dict(elem_data)
                     canvas.add_element(element)
 
+                bg = canvas_data.get('background_color')
+                if bg:
+                    col = QColor(bg)
+                    if col.isValid():
+                        canvas.background_color = col
+
                 self.canvases[canvas_id] = canvas
                 index = self.tab_widget.addTab(canvas, name)
                 item = QListWidgetItem(name)
                 item.setData(Qt.UserRole, canvas_id)
                 self.canvas_list.addItem(item)
+
+                try:
+                    suffix = int(canvas_id.split("_")[1])
+                    self.canvas_counter = max(self.canvas_counter, suffix + 1)
+                except Exception:
+                    pass
 
             # Переключаемся на сохраненный холст
             current_id = project_data.get('current_canvas')
@@ -1248,20 +1087,17 @@ class MainWindow(QMainWindow):
                         self.tab_widget.setCurrentIndex(i)
                         self.current_canvas_id = current_id
                         break
+            elif self.tab_widget.count() > 0:
+                self.tab_widget.setCurrentIndex(0)
+                widget = self.tab_widget.currentWidget()
+                if widget:
+                    self.current_canvas_id = widget.canvas_id
+            else:
+                self.create_canvas("Холст 1")
 
             QMessageBox.information(self, "Успех", "Проект загружен")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить проект: {str(e)}")
-
-    def mouseDoubleClickEvent(self, event):
-        """Обработка двойного клика для редактирования элементов"""
-        canvas = self.get_current_canvas()
-        if canvas:
-            pos = event.position()
-            element = canvas.get_element_at(pos)
-            if element:
-                canvas.edit_element(element)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
